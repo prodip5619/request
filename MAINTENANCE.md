@@ -210,6 +210,136 @@ This confirms that the expired certificate problem has been fixed.
 
 ---
 
+# Verification on macOS
+
+## 10. Second Environment
+
+The certificate fix was verified on a second machine:
+
+- Operating System: macOS
+- Node.js: 22.21.1 (Homebrew)
+- npm: 10.9.4
+- OpenSSL: 3.6.2
+
+Dependencies were installed with:
+
+    npm install --legacy-peer-deps
+
+---
+
+## 11. Renewed Certificates
+
+The renewed certificates were checked with OpenSSL:
+
+    openssl verify -CAfile tests/ssl/ca/ca.crt tests/ssl/ca/server.crt
+
+Result:
+
+    tests/ssl/ca/server.crt: OK
+
+The renewed chain is valid. However, the reused CA key is only 1024 bits:
+
+    openssl pkey -in tests/ssl/ca/ca.key -passin pass:password -noout -text
+
+    Private-Key: (1024 bit, 2 primes)
+
+Newer OpenSSL rejects 1024-bit CA keys with the error "CA certificate key too weak". So the CA key also needs to be replaced, not only the certificate.
+
+---
+
+## 12. HTTPS Test on macOS
+
+We ran:
+
+    node tests/test-https.js
+
+The test server crashes before any test runs:
+
+    Error: error:0A00018F:SSL routines::ee key too small
+      at exports.createSSLServer (tests/server.js:62:17)
+      code: 'ERR_SSL_EE_KEY_TOO_SMALL'
+
+This is not caused by the renewed certificates.
+
+`tests/server.js` also loads `tests/ssl/test.key` and `tests/ssl/test.crt`:
+
+- `test.key` is a 1024-bit RSA key.
+- `test.crt` is signed with SHA-1.
+- `test.crt` also expired on November 30, 2021.
+
+OpenSSL 3.6.2 rejects 1024-bit keys and SHA-1 signatures by default. Prodip's 20/20 result on Windows (Node.js 22.19.0) suggests its bundled OpenSSL still accepts them.
+
+To confirm the cause, the test was run once with a lower OpenSSL security level:
+
+    node --tls-cipher-list='DEFAULT@SECLEVEL=0' tests/test-https.js
+
+Result:
+
+    # tests 20
+    # pass  20
+
+This is for diagnosis only. It is not a fix, because it weakens certificate checking.
+
+---
+
+## 13. Tunnel Test on macOS
+
+We ran:
+
+    node tests/test-tunnel.js
+
+Result:
+
+    ERR_SSL_CA_MD_TOO_WEAK
+
+`localhost.crt` and `client.crt` are signed with SHA-1.
+
+With the lower security level, the result is:
+
+    # tests 26
+    # pass  24
+    # fail  2
+
+The two failures are the "mutual https over http" tests. They fail with "socket hang up".
+
+The cause is the client certificate used for mutual TLS:
+
+    openssl verify -CAfile tests/ssl/ca/ca.crt tests/ssl/ca/client.crt
+
+    error 10 at 0 depth lookup: certificate has expired
+
+`client.crt` expired on November 21, 2021. It was not part of the renewal.
+
+---
+
+## 14. Other Affected Tests
+
+Four more test files use the same HTTPS test server in `tests/server.js`, so they crash on macOS for the same reason as `test-https.js`:
+
+| Test file | Default | Lower security level |
+| --- | --- | --- |
+| test-httpModule.js | crash | 50/50 |
+| test-redirect.js | crash | 92/92 |
+| test-redirect-complex.js | crash | 40/40 |
+| test-redirect-auth.js | crash | 18/18 |
+
+---
+
+## 15. Suggested Fix
+
+Regenerate the remaining test certificates with at least 2048-bit keys and SHA-256 signatures:
+
+- `tests/ssl/ca/ca.key` (1024-bit), which means `ca.crt` and every certificate signed by it must be reissued
+- `tests/ssl/ca/client.crt` (expired, SHA-1)
+- `tests/ssl/ca/localhost.crt` (SHA-1)
+- `tests/ssl/test.crt` / `tests/ssl/test.key` (expired, 1024-bit, SHA-1)
+
+The existing scripts `gen-server.sh`, `gen-client.sh` and `gen-localhost.sh` can be reused. There is no script for the CA yet.
+
+Do not lower the security level or disable certificate verification.
+
+---
+
 # Current Finding
 
 The original strict HTTPS test failure was caused by an expired CA certificate in the test infrastructure.
@@ -225,11 +355,15 @@ Important findings:
 - The renewed CA and server certificates verify successfully.
 - All 20 HTTPS tests now pass.
 
+Note: this holds on Windows. On macOS with OpenSSL 3.6.2, the HTTPS tests still fail because of the 1024-bit CA key and other weak or expired test certificates. See sections 11 to 15.
+
 ---
 
 # Current Status
 
 **Status: HTTPS certificate maintenance completed and verified.**
+
+Note: verified on Windows only. On macOS with OpenSSL 3.6.2, the HTTPS tests still fail because of the 1024-bit CA key and other weak or expired test certificates. See sections 11 to 15.
 
 The certificate maintenance changes have been committed on the `prodip-investigation` branch.
 
