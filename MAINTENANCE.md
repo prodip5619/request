@@ -210,6 +210,104 @@ This confirms that the expired certificate problem has been fixed.
 
 ---
 
+# Complete Test Suite After the Certificate Fix
+
+## 10. Running the Complete Test Suite
+
+Environment used (same as in Progress Report 1):
+
+- Node.js: 22.19.0
+- npm: 10.9.3
+- Dependencies installed with `npm.cmd install --legacy-peer-deps`
+
+We first ran:
+
+    npm.cmd run test-ci
+
+Taper only reported:
+
+    total ............................... 0/1
+    not ok
+
+This does not show which test file failed. We therefore ran each of the 55 test files directly:
+
+    node tests\test-<name>.js
+
+The result was:
+
+    55 test files
+    52 passed   (1434 assertions, 0 failures)
+     3 failed   (test-form-data, test-tunnel, test-unix)
+
+`test-https.js` still passes with 20/20 after the certificate fix. The only other test file that uses `tests/ssl/ca/ca.crt` is `test-tunnel.js`, which fails for a different reason (see below).
+
+---
+
+## 11. Remaining Failures
+
+### test-tunnel.js
+
+The test crashes before any assertion when the HTTPS test server starts:
+
+    Error: error:0A00018E:SSL routines::ca md too weak
+    code: 'ERR_SSL_CA_MD_TOO_WEAK'
+
+The test uses other certificates from `tests/ssl/ca/`, which were not part of the certificate fix:
+
+    localhost.crt   sha1WithRSAEncryption, 2048 bit, valid until Nov 19, 2028
+    client.crt      sha1WithRSAEncryption, 2048 bit, expired Nov 21, 2021
+
+OpenSSL 3 rejects the SHA-1 signature on `localhost.crt`. `client.crt` has also expired:
+
+    openssl verify -CAfile tests\ssl\ca\ca.crt tests\ssl\ca\client.crt
+    error 10 at 0 depth lookup: certificate has expired
+
+This is the same type of problem as the expired CA certificate and should be fixable in the same way.
+
+### test-form-data.js
+
+42 assertions pass, then the `multipart formData + basic auth` case fails and the test crashes:
+
+    not ok 43 should be equal
+      expected: null
+      actual:   { [Error: read ECONNRESET] code: 'ECONNRESET', syscall: 'read' }
+
+    TypeError: Cannot read properties of undefined (reading 'statusCode')
+
+The failure happens on every run, and also on Node.js 24.
+
+Preliminary explanation (not yet verified): with `sendImmediately: false`, the test server answers the first request with `401` without reading the multipart body. Modern Node.js closes the connection while the client is still sending the body, which gives `ECONNRESET` on the client side.
+
+This needs further investigation to decide whether the problem is in the test or in how `request.js` handles the 401 response.
+
+### test-unix.js
+
+The test crashes when it tries to listen on a Unix domain socket:
+
+    Error: listen EACCES: permission denied ...\tests/tmp-socket
+
+The test uses a file path as socket path. This does not work on Windows, where a named pipe path (`\\.\pipe\...`) is required. The original project only ran its CI on Linux (`.travis.yml`).
+
+This is a platform problem and not a defect in `request`.
+
+### test-browser
+
+Because `test-ci` fails, `npm test` never reaches the browser tests. Running them directly gives:
+
+    npm.cmd run test-browser
+    Error: spawn karma ENOENT
+
+`tests/browser/start.js` starts `karma` in a way that does not work on Windows. The browser tests also depend on PhantomJS, which is no longer maintained.
+
+---
+
+## 12. Environment Observations
+
+- On Node.js 24, `test-https.js` crashes with `ERR_SSL_EE_KEY_TOO_SMALL`, even after the certificate fix, because Node.js 24 rejects the 1024-bit `tests/ssl/test.key` used by the relaxed HTTPS server. All group members should therefore use Node.js 22.19.0.
+- `package-lock.json` is ignored by `.gitignore`. The installed dependency tree can therefore differ between group members. A fresh install gave 896 packages and 61 vulnerabilities, compared to 892 packages and 59 vulnerabilities in Progress Report 1.
+
+---
+
 # Current Finding
 
 The original strict HTTPS test failure was caused by an expired CA certificate in the test infrastructure.
@@ -239,15 +337,15 @@ Commit:
 
 The working tree is clean after the commit.
 
-The complete project test suite still needs to be verified after the certificate fix.
+The complete test suite has been run after the certificate fix (see sections 10–12). 52 of 55 test files pass. Three test files still fail.
 
 ---
 
 # Planned / Remaining Work
 
-1. Run the complete test suite after the certificate fix.
-2. Investigate any remaining test failures.
-3. Check that the certificate fix does not introduce regressions.
+1. Renew `localhost.crt` and `client.crt` so that `test-tunnel.js` can run.
+2. Investigate the root cause of the `test-form-data.js` failure.
+3. Decide whether to fix or only document the Windows-specific failures (`test-unix.js`, `test-browser`).
 4. Document the final findings.
 5. Finalize the maintenance type classification.
 6. Update the final project report.
