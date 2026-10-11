@@ -454,3 +454,54 @@ This file is a living technical log for the maintenance project.
 It records important setup steps, commands, investigation results, maintenance changes, current findings, and remaining work.
 
 It will be updated as the project progresses.
+# Complete Test Suite Findings
+
+## Andreas's Initial Test Run
+
+Andreas ran the complete test suite on Windows using Node.js 22.19.0
+and npm 10.9.3. Dependencies were installed with:
+
+    npm.cmd install --legacy-peer-deps
+
+The command `npm.cmd run test-ci` reported:
+
+    total ............................... 0/1
+    not ok
+
+This output did not identify the failing test file. Andreas therefore
+ran the 55 test files individually. His initial results were:
+
+- 52 test files passed, with 1,434 assertions and no assertion failures.
+- Three test files failed: `test-form-data.js`, `test-tunnel.js`, and
+  `test-unix.js`.
+
+These are Andreas's initial results, not the final results after
+Prodip's subsequent local certificate and test-fixture changes.
+
+## Subsequent Local Verification
+
+In a later local working state, before those changes were stashed,
+Prodip recorded the following results:
+
+- `test-https.js`: 20/20 passed.
+- `test-tunnel.js`: 27/27 passed after renewing the tunnel certificates.
+- `test-form-data.js`: 65/65 passed after the test-fixture change.
+- Browser tests: 2/2 passed.
+- Lint: passed.
+
+These results were obtained with local changes that are currently
+preserved in a Git stash. They must be rechecked after those changes
+are restored to the integration branch before being treated as the
+final verified state.
+
+## Remaining Windows Test Limitations
+
+- `test-unix.js` fails with `listen EACCES` on Windows before its
+  assertions can run. This is a platform-specific limitation observed
+  in the local environment.
+- `npm.cmd run test-ci` does not provide useful individual test results
+  in this Windows environment. Individual test files were therefore
+  used for diagnosis.
+
+The full-suite status must be updated after the certificate changes
+are restored and the remaining tests are verified.
