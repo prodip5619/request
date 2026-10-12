@@ -11,11 +11,34 @@ var url = require('url')
 var rawPath = [null, 'raw', 'path'].join('/')
 var queryPath = [null, 'query', 'path'].join('/')
 var searchString = '?foo=bar'
-var socket = [__dirname, 'tmp-socket'].join('/')
+var isWindows = process.platform === 'win32'
+var socket = isWindows
+  ? '\\\\.\\pipe\\request-' + process.pid
+  : [__dirname, 'tmp-socket'].join('/')
 var expectedBody = 'connected'
 var statusCode = 200
 
-rimraf.sync(socket)
+if (!isWindows) {
+  rimraf.sync(socket)
+}
+
+function requestOnSocket (path, options, callback) {
+  var requestOptions = {}
+  for (var key in options) {
+    if (Object.prototype.hasOwnProperty.call(options, key)) {
+      requestOptions[key] = options[key]
+    }
+  }
+
+  if (isWindows) {
+    requestOptions.uri = 'http://localhost' + path
+    requestOptions.socketPath = socket
+  } else {
+    requestOptions.uri = 'http://unix:' + socket + ':' + path
+  }
+
+  return request(requestOptions, callback)
+}
 
 var s = http.createServer(function (req, res) {
   var incomingUrl = url.parse(req.url)
@@ -43,7 +66,7 @@ tape('setup', function (t) {
 })
 
 tape('unix socket connection', function (t) {
-  request('http://unix:' + socket + ':' + rawPath, function (err, res, body) {
+  requestOnSocket(rawPath, {}, function (err, res, body) {
     t.equal(err, null, 'no error in connection')
     t.equal(res.statusCode, statusCode, 'got HTTP 200 OK response')
     t.equal(body, expectedBody, 'expected response body is received')
@@ -52,8 +75,7 @@ tape('unix socket connection', function (t) {
 })
 
 tape('unix socket connection with qs', function (t) {
-  request({
-    uri: 'http://unix:' + socket + ':' + queryPath,
+  requestOnSocket(queryPath, {
     qs: {
       foo: 'bar'
     }
@@ -67,8 +89,12 @@ tape('unix socket connection with qs', function (t) {
 
 tape('cleanup', function (t) {
   s.close(function () {
-    fs.unlink(socket, function () {
+    if (isWindows) {
       t.end()
-    })
+    } else {
+      fs.unlink(socket, function () {
+        t.end()
+      })
+    }
   })
 })
