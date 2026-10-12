@@ -21,7 +21,7 @@ function runTest (t, options) {
 
     if (options.auth) {
       if (!req.headers.authorization) {
-        res.writeHead(401, {'www-authenticate': 'Basic realm="Private"'})
+        res.writeHead(401, {'www-authenticate': 'Basic realm="Private"', connection: 'close'})
         res.end()
         return
       } else {

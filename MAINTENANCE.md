@@ -478,30 +478,43 @@ ran the 55 test files individually. His initial results were:
 These are Andreas's initial results, not the final results after
 Prodip's subsequent local certificate and test-fixture changes.
 
-## Subsequent Local Verification
+## Prodip's Progress Report 2 Update
 
-In a later local working state, before those changes were stashed,
-Prodip recorded the following results:
+### Work completed
 
-- `test-https.js`: 20/20 passed.
-- `test-tunnel.js`: 27/27 passed after renewing the tunnel certificates.
-- `test-form-data.js`: 65/65 passed after the test-fixture change.
-- Browser tests: 2/2 passed.
-- Lint: passed.
+- The committed change in `tests/test-unix.js` uses a Windows named pipe.
+  The HTTP and query-string checks run on Windows. Linux and macOS keep
+  the Unix filesystem socket path and URL.
+- The HTTPS test certificates and related fixtures were renewed. OpenSSL
+  verification of the CA-signed server certificate succeeded. TLS
+  verification was not disabled.
+- `tests/browser/start.js` was changed to start Karma on Windows.
+- The form-data test server now closes the connection when it sends its
+  401 response.
 
-These results were obtained with local changes that are currently
-preserved in a Git stash. They must be rechecked after those changes
-are restored to the integration branch before being treated as the
-final verified state.
+### Previous Windows test results
 
-## Remaining Windows Test Limitations
+These results were reported from Windows with Node.js 22.19.0 and
+npm 10.9.3. They were not rerun while updating this document.
 
-- `test-unix.js` fails with `listen EACCES` on Windows before its
-  assertions can run. This is a platform-specific limitation observed
-  in the local environment.
-- `npm.cmd run test-ci` does not provide useful individual test results
-  in this Windows environment. Individual test files were therefore
-  used for diagnosis.
+- `npm.cmd run lint`: passed.
+- `tests/test-unix.js`: 7/7 passed.
+- Full CI suite: 55 files and 1,585/1,585 assertions passed.
+- `npm.cmd run test-browser`: 2/2 passed.
 
-The full-suite status must be updated after the certificate changes
-are restored and the remaining tests are verified.
+On this Windows setup, `npm.cmd run test-ci` did not expand its test-file
+wildcard correctly. The full suite passed when the test files were listed
+explicitly in PowerShell:
+
+    $files = @(Get-ChildItem .\tests -Filter 'test-*.js' | ForEach-Object { $_.FullName })
+    & .\node_modules\.bin\taper.cmd @files
+
+### Work still needed and limitations
+
+- Run the current tests on Linux or macOS. The Windows results do not
+  verify Unix socket behavior on those systems.
+- `tests/ssl/test.key` was not changed and is still a 1024-bit RSA key.
+  It may be rejected by newer Node.js or OpenSSL versions.
+- The certificate generator serial-allocation issue is unresolved.
+  Certificate regeneration scripts have not been made safe against
+  duplicate serial numbers.
