@@ -6,3 +6,8 @@ Certs are generated for TLS tests. The localhost, client and server certs for us
 ```
 
 They should last 10 years, but can be updated at any time.
+
+The self-signed cert used by `tests/server.js` is generated separately by
+running `../gen-test.sh`. The RSA key used to check OAuth signatures in
+`tests/test-oauth.js` is kept as `../oauth-rsa.key` and must not be regenerated,
+because the expected signatures in that test depend on it.

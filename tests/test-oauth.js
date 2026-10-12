@@ -23,7 +23,7 @@ function getSignature (r) {
 var hmacsign = oauth.hmacsign
 var hmacsign256 = oauth.hmacsign256
 var rsasign = oauth.rsasign
-var rsaPrivatePEM = fs.readFileSync(path.join(__dirname, 'ssl', 'test.key'))
+var rsaPrivatePEM = fs.readFileSync(path.join(__dirname, 'ssl', 'oauth-rsa.key'))
 var reqsign
 var reqsign256
 var reqsignRSA
