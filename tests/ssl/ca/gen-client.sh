@@ -13,6 +13,7 @@ openssl req -new -sha256 -key client.key -out client.csr -config client.cnf -day
 
 # Use the CSR and the CA key (previously generated) to create a certificate
 openssl x509 -req \
+    -sha256 \
     -in client.csr \
     -CA ca.crt \
     -CAkey ca.key \

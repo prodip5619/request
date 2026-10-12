@@ -13,6 +13,7 @@ openssl req -new -sha256 -key localhost.key -out localhost.csr -config localhost
 
 # Use the CSR and the CA key (previously generated) to create a certificate
 openssl x509 -req \
+    -sha256 \
     -in localhost.csr \
     -CA ca.crt \
     -CAkey ca.key \
