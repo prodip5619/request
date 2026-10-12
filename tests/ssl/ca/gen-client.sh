@@ -17,7 +17,7 @@ openssl x509 -req \
     -in client.csr \
     -CA ca.crt \
     -CAkey ca.key \
-    -set_serial 0x`cat ca.srl` \
+    -CAserial ca.srl \
     -passin 'pass:password' \
     -out client.crt \
     -days 1095
