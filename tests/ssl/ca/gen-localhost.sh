@@ -17,7 +17,7 @@ openssl x509 -req \
     -in localhost.csr \
     -CA ca.crt \
     -CAkey ca.key \
-    -set_serial 0x`cat ca.srl` \
+    -CAserial ca.srl \
     -passin 'pass:password' \
     -out localhost.crt \
     -days 3650
