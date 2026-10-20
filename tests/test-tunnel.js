@@ -130,6 +130,17 @@ function runTest (name, opts, expected) {
 }
 
 function addTests () {
+  tape('https agent pool is separate from http proxy agents', function (t) {
+    request({
+      url: ss.url,
+      ca: ca
+    }, function (err) {
+      t.equal(err, null, 'HTTPS request with the test CA succeeds')
+      events = []
+      t.end()
+    })
+  })
+
   // HTTP OVER HTTP
 
   runTest('http over http, tunnel=true', {

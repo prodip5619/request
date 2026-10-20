@@ -632,6 +632,7 @@ Request.prototype.getNewAgent = function () {
   if (typeof proxy === 'string') {
     proxy = url.parse(proxy)
   }
+  var protocol = proxy && !self.tunnel ? proxy.protocol : self.uri.protocol
   var isHttps = (proxy && proxy.protocol === 'https:') || this.uri.protocol === 'https:'
 
   if (isHttps) {
@@ -691,7 +692,7 @@ Request.prototype.getNewAgent = function () {
   }
 
   // we're using a stored agent.  Make sure it's protocol-specific
-  poolKey = self.uri.protocol + poolKey
+  poolKey = protocol + poolKey
 
   // generate a new agent for this setting if none yet exists
   if (!self.pool[poolKey]) {

@@ -1,520 +1,190 @@
 # Maintenance Programming - Group 4
 
-## Project
+## 1. Project Overview
 
 **Course:** 1DL601 Maintenance Programming
+**Project:** `request`, a legacy Node.js HTTP client library
+**Group members:** Martin Ek, Andreas Lund, and Prodip Kumar Das
 
-**Group members:**
-- Martin Ek
-- Andreas Lund
-- Prodip Kumar Das
+The original `request` project was deprecated in February 2020. We use this document to record our maintenance work, verification evidence, and remaining review items.
 
-**Legacy system:** `request`
+### Repository and investigation environment
 
-`request` is a legacy Node.js HTTP client library. The original project was officially deprecated in February 2020.
+The group repository is `prodip5619/request`. The initial investigation notes identify the `prodip-investigation` branch; their snapshot date is not recorded. At the October 20, 2026 documentation update and the October 21, 2026 audit, the checked-out branch was `prodip-integrate-andreas`, tracking `origin/prodip-integrate-andreas` and ahead by two commits. These are separate snapshots, not a claim that the current worktree is on the earlier branch.
 
----
+The initial investigation and the later Windows verification were performed on Windows with Node.js 22.19.0 and npm 10.9.3. Results from that environment do not establish Linux or macOS compatibility.
 
-## Current Branch
+## 2. Current Maintenance Status
 
-We are currently working on:
+Our work covers test discovery and execution, Windows test support, certificate fixtures and generation, the agent pool, and shell-script portability. The sections below summarize changes supported by the repository and our project reports.
 
-`prodip-investigation`
+We have discussed the adaptive and perfective classifications with the TA and received confirmation that we can use these categories for our work. We still need to clarify whether the certificate-related and other potentially corrective fixes count as corrective maintenance. Each task can count toward only one maintenance type for the course.
 
-This branch is being used for investigation and maintenance changes.
+Our latest documented full CI and browser-test results are from Windows. We have not verified the current working tree on Linux or macOS.
 
----
+### `localAddress` redirect test
 
-## Environment
+The previous `tests/test-localAddress.js` redirect case contacted Google and chose the first non-internal IPv4 address returned by the operating system. On our Windows test environment, that address was `172.29.224.1` on the WSL virtual adapter. DNS resolution succeeded and a default-route TCP check to Google succeeded, but the request bound to the selected adapter failed with `ENETUNREACH` at `142.251.143.142:80`. The callback then accessed `res.request` even though the request had failed, causing a `TypeError`.
 
-- Operating System: Windows
-- Node.js: 22.19.0
-- npm: 10.9.3
+We replaced that external dependency with a local HTTP server bound to the selected local IPv4 address (or loopback if none is available). The test still checks invalid-address binding, verifies the source address observed by the server, and follows a local `/redirect` to `/final` while checking the source address on both requests. No production request or redirect code needed to change.
 
----
+## 3. Adaptive Maintenance
 
-# Work Done So Far
+These changes adapt the test infrastructure to Windows behavior while retaining the Unix-like platform paths where applicable.
 
-## 1. Repository Setup
+| Change | Purpose and evidence |
+| --- | --- |
+| `tests/run-test-suite.js` and the `test-ci` script in `package.json` | The earlier test command passed a wildcard to Taper through `cmd.exe`; Windows did not expand it, and Taper ran no tests. The runner now finds, sorts, and passes matching `tests/test-*.js` files directly to Taper. Before the later `localAddress` test fix, the Windows CI result reported 56 test files and 1,599 assertions passing. |
+| `tests/test-unix.js` | Uses a Windows named pipe on Windows. Other platforms retain the Unix-domain socket path and URL. Progress Report 2 records 7/7 checks passing on Windows and that the Unix-socket test passed on macOS in an earlier test run. |
+| `tests/browser/start.js` | Starts the local Karma CLI through `process.execPath` on Windows, avoiding shell parsing of paths with spaces; non-Windows platforms continue to invoke `karma`. Spawn errors and nonzero exit statuses are reported and propagated. |
 
-- Forked the original `request` repository.
-- Cloned the repository locally.
-- Created the `prodip-investigation` branch.
-- No source-code changes were made to `request.js`.
+We classify this work as adaptive because it adjusts the existing test infrastructure to the Windows environment while preserving Unix-like behavior. These changes do not establish that the current application or test suite works on all operating systems.
 
----
+## 4. Perfective Maintenance
 
-## 2. Installing Dependencies
+### Shell-script line-ending portability
 
-First, we tried:
+The release and certificate-generation scripts were recorded with CRLF line endings. The project report records that executing `tests/ssl/ca/gen-all-certs.sh` under Bash failed with “cannot execute: required file not found.” This was a portability and maintenance-tooling problem, not a change to the `request` library's runtime behavior.
 
-    npm.cmd install
+The work improves consistency and maintainability by enforcing LF endings and checking the script files automatically:
 
-This failed with an `ERESOLVE` dependency error involving `karma` and `karma-tap`.
+| File | Role or change |
+| --- | --- |
+| `.gitattributes` | Sets `text eol=lf` for `*.sh`. |
+| `release.sh` | Release helper; normalized to LF. |
+| `tests/ssl/gen-test.sh` | Generates the self-signed certificate used by the test server; normalized to LF. |
+| `tests/ssl/ca/gen-all-certs.sh` | Runs the server, client, and localhost certificate-generation scripts; normalized to LF. |
+| `tests/ssl/ca/gen-server.sh` | Generates the server test certificate; normalized to LF. |
+| `tests/ssl/ca/gen-client.sh` | Generates the client test certificate; normalized to LF. |
+| `tests/ssl/ca/gen-localhost.sh` | Generates the localhost test certificate; normalized to LF. |
+| `tests/ssl/ca/README.md` | Documents the LF requirement for running the scripts with bash/sh. |
+| `tests/test-shell-scripts.js` | Checks the six scripts for CR characters and runs `bash -n` on each: 12 checks total. |
 
-We then used:
+The test checks line endings and Bash syntax. It does not execute the scripts, verify certificate generation, or prove application compatibility across operating systems.
 
-    npm.cmd install --legacy-peer-deps
+Prodip Kumar Das completed this work independently in the Windows environment. We classify it as perfective because it improves the consistency and maintainability of our supporting scripts without changing the library's runtime behavior. The historical Windows verification recorded 12/12 checks passing. We reran the command during the October 20, 2026 documentation consolidation on Windows with Node.js 22.19.0; it again passed 12/12. Bash was available, but its version was not recorded. We have no evidence of a Linux or macOS run.
 
-This successfully installed the dependencies.
+## 5. Potentially Corrective Work — Classification Pending
 
-The installation also reported deprecated packages and security vulnerabilities.
+We have not resolved with the TA whether the following fixes qualify as corrective maintenance for the course. A task may involve characteristics of multiple maintenance types, but it can count toward only one type. We still need to agree on the primary classification of each task and confirm it with the TA.
 
-We did not run `npm audit fix` because we did not want to automatically change the old dependency structure before understanding the original project.
-
----
-
-## 3. Running the Tests
-
-We ran:
-
-    npm.cmd test
-
-The result was:
-
-    lint          -> passed
-    test-ci       -> failed
-    test-browser  -> not reached
-
-Because `test-ci` failed, the browser tests were not executed.
-
-The project has 55 JavaScript test files matching:
-
-    tests/test-*.js
-
----
-
-## 4. HTTPS Test Investigation
-
-We ran the HTTPS test directly:
-
-    node tests\test-https.js
-
-Initially, the result was:
-
-    20 tests
-    10 passed
-    10 failed
-
-The relaxed HTTPS tests passed.
-
-The strict HTTPS tests failed with:
-
-    CERT_HAS_EXPIRED
-
-This showed that certificate validation was the main problem to investigate.
-
----
-
-## 5. Certificate Investigation
-
-We checked the server certificate:
-
-    openssl x509 -in tests\ssl\ca\server.crt -noout -dates -issuer -subject
-
-The original server certificate was valid until:
-
-**November 19, 2028**
-
-We then checked the CA certificate:
-
-    openssl x509 -in tests\ssl\ca\ca.crt -noout -dates -issuer -subject
-
-The original CA certificate expired on:
-
-**February 27, 2022**
-
-Therefore:
-
-- The server certificate had not expired.
-- The CA certificate used by the strict HTTPS tests had expired.
-
----
-
-## 6. OpenSSL Verification
-
-We used OpenSSL to verify the certificate chain:
-
-    openssl verify -CAfile tests\ssl\ca\ca.crt tests\ssl\ca\server.crt
-
-The verification failed because the CA certificate had expired.
-
-This confirmed that the expired CA certificate was the cause of the strict HTTPS failure.
-
----
-
-## 7. Checking request.js
-
-We also checked how `request.js` handles the HTTPS certificate options.
-
-We searched for the relevant code using:
-
-    Select-String -Path request.js -Pattern "strictSSL|rejectUnauthorized|ca|https"
-
-The investigation showed that:
-
-- The CA certificate is passed to the HTTPS options.
-- The `rejectUnauthorized` setting is passed correctly.
-- The request is eventually passed to Node's HTTP/HTTPS implementation.
-
-We found no evidence that `request.js` itself was incorrectly handling the certificate options.
-
----
-
-# Certificate Maintenance Fix
-
-## 8. Renewing the Test Certificates
-
-The expired CA certificate was renewed using the existing test CA key.
-
-The CA certificate was regenerated with appropriate CA certificate extensions.
-
-The server certificate and matching server private key were then regenerated using the renewed CA.
-
-The new CA certificate is valid until:
-
-**October 5, 2036**
-
-The new server certificate is also valid until:
-
-**October 5, 2036**
-
-The certificate chain was verified with OpenSSL:
-
-    openssl verify -CAfile tests\ssl\ca\ca.crt tests\ssl\ca\server.crt
-
-Result:
-
-    server.crt: OK
-
-No changes were made to `request.js`.
-
----
-
-## 9. HTTPS Test After the Fix
-
-After regenerating the certificates, we ran:
-
-    node tests\test-https.js
-
-The result was:
-
-    1..20
-    # tests 20
-    # pass  20
-    # ok
-
-Both relaxed and strict HTTPS tests now pass.
-
-This confirms that the expired certificate problem has been fixed.
-
----
-
-# Verification on macOS
-
-## 10. Second Environment
-
-The certificate fix was verified on a second machine:
-
-- Operating System: macOS
-- Node.js: 22.21.1 (Homebrew)
-- npm: 10.9.4
-- OpenSSL: 3.6.2
-
-Dependencies were installed with:
-
-    npm install --legacy-peer-deps
-
----
-
-## 11. Renewed Certificates
-
-The renewed certificates were checked with OpenSSL:
-
-    openssl verify -CAfile tests/ssl/ca/ca.crt tests/ssl/ca/server.crt
-
-Result:
-
-    tests/ssl/ca/server.crt: OK
-
-The renewed chain is valid. However, the reused CA key is only 1024 bits:
-
-    openssl pkey -in tests/ssl/ca/ca.key -passin pass:password -noout -text
-
-    Private-Key: (1024 bit, 2 primes)
-
-Newer OpenSSL rejects 1024-bit CA keys with the error "CA certificate key too weak". So the CA key also needs to be replaced, not only the certificate.
-
----
-
-## 12. HTTPS Test on macOS
-
-We ran:
-
-    node tests/test-https.js
-
-The test server crashes before any test runs:
-
-    Error: error:0A00018F:SSL routines::ee key too small
-      at exports.createSSLServer (tests/server.js:62:17)
-      code: 'ERR_SSL_EE_KEY_TOO_SMALL'
-
-This is not caused by the renewed certificates.
-
-`tests/server.js` also loads `tests/ssl/test.key` and `tests/ssl/test.crt`:
-
-- `test.key` is a 1024-bit RSA key.
-- `test.crt` is signed with SHA-1.
-- `test.crt` also expired on November 30, 2021.
-
-OpenSSL 3.6.2 rejects 1024-bit keys and SHA-1 signatures by default. Prodip's 20/20 result on Windows (Node.js 22.19.0) suggests its bundled OpenSSL still accepts them.
-
-To confirm the cause, the test was run once with a lower OpenSSL security level:
-
-    node --tls-cipher-list='DEFAULT@SECLEVEL=0' tests/test-https.js
-
-Result:
-
-    # tests 20
-    # pass  20
-
-This is for diagnosis only. It is not a fix, because it weakens certificate checking.
-
----
-
-## 13. Tunnel Test on macOS
-
-We ran:
-
-    node tests/test-tunnel.js
-
-Result:
-
-    ERR_SSL_CA_MD_TOO_WEAK
-
-`localhost.crt` and `client.crt` are signed with SHA-1.
-
-With the lower security level, the result is:
-
-    # tests 26
-    # pass  24
-    # fail  2
-
-The two failures are the "mutual https over http" tests. They fail with "socket hang up".
-
-The cause is the client certificate used for mutual TLS:
-
-    openssl verify -CAfile tests/ssl/ca/ca.crt tests/ssl/ca/client.crt
-
-    error 10 at 0 depth lookup: certificate has expired
-
-`client.crt` expired on November 21, 2021. It was not part of the renewal.
-
----
-
-## 14. Other Affected Tests
-
-Four more test files use the same HTTPS test server in `tests/server.js`, so they crash on macOS for the same reason as `test-https.js`:
-
-| Test file | Default | Lower security level |
+| Task | What changed and why | Classification status |
 | --- | --- | --- |
-| test-httpModule.js | crash | 50/50 |
-| test-redirect.js | crash | 92/92 |
-| test-redirect-complex.js | crash | 40/40 |
-| test-redirect-auth.js | crash | 18/18 |
+| Certificate fixtures and generation | The expired CA caused strict HTTPS tests to fail with `CERT_HAS_EXPIRED`. We later renewed the CA and reissued the server, client, and localhost certificates. We also replaced weak or expired test fixtures, including `tests/ssl/test.key` and `tests/ssl/test.crt`. The generator workflow was updated, and `gen-client.sh` and `gen-localhost.sh` use `-CAserial ca.srl` to avoid duplicate serial allocation. TLS verification was not disabled. | We still need to confirm whether these changes count as corrective maintenance. |
+| Agent-pool protocol collision | `request.js` keys pooled agents using the proxy protocol for non-tunneled proxy requests and otherwise the destination protocol. `tests/test-tunnel.js` first exercises an HTTPS request to expose an incompatible pooled-agent selection. An in-memory old-key counterfactual is recorded as 23/27 passing, with four protocol errors. | We still need to confirm whether this fix counts as corrective maintenance. |
+| Form-data test response | `tests/test-form-data.js` sends `Connection: close` with the test server's 401 response. The progress report says this addressed an `ECONNRESET` when the client was still sending a multipart body. | We still need to confirm whether this test-server fix counts as corrective maintenance. |
 
----
+Progress Reports 1 and 2 treated the maintenance classifications as proposals and left the final decision open. We have since confirmed with the TA that adaptive and perfective maintenance can be used for our work. The classification still awaiting clarification is whether the fixes above count as corrective maintenance.
 
-## 15. Suggested Fix
+We have not assigned a course maintenance type to the `localAddress` test-only reliability change described in Section 2.
 
-Regenerate the remaining test certificates with at least 2048-bit keys and SHA-256 signatures:
+The separate corrective-maintenance report found no additional reproducible corrective defect in its investigated snapshot and made no implementation change. It records passing HTTPS and tunnel checks on that snapshot; it does not settle the classification of the fixes listed above.
 
-- `tests/ssl/ca/ca.key` (1024-bit), which means `ca.crt` and every certificate signed by it must be reissued
-- `tests/ssl/ca/client.crt` (expired, SHA-1)
-- `tests/ssl/ca/localhost.crt` (SHA-1)
-- `tests/ssl/test.crt` / `tests/ssl/test.key` (expired, 1024-bit, SHA-1)
+## 6. Verification Results
 
-The existing scripts `gen-server.sh`, `gen-client.sh` and `gen-localhost.sh` can be reused. There is no script for the CA yet.
+The results below distinguish historical project records from tests rerun during the October 20, 2026 investigation and documentation update. Each row identifies its evidence status; results described as historical were not rerun during that investigation.
 
-Do not lower the security level or disable certificate verification.
+| Command or check | Result | Environment | Evidence status |
+| --- | --- | --- | --- |
+| `npm.cmd install` | Failed with `ERESOLVE` involving `karma` and `karma-tap`. `npm.cmd install --legacy-peer-deps` then installed dependencies successfully. The install reported deprecated packages and vulnerabilities. We did not run `npm audit fix` because we did not want to automatically change the legacy dependency structure before understanding it. | Initial Windows setup; Node.js 22.19.0, npm 10.9.3. | Historical setup record; not a test result. |
+| Initial `npm.cmd test` | Lint passed; `test-ci` failed, so `test-browser` was not reached in that run. | Initial Windows test run; Node.js 22.19.0, npm 10.9.3. | Historical; later browser and full-suite results are listed separately below. |
+| `node tests/test-https.js` before certificate renewal | 20 tests; 10 passed and 10 failed. Relaxed HTTPS checks passed; strict checks failed with `CERT_HAS_EXPIRED`. | Initial Windows HTTPS investigation; Node.js 22.19.0. | Historical baseline. |
+| `node tests/test-https.js` after certificate renewal | 20/20 passed, including strict HTTPS checks. | Windows, Node.js 22.19.0. | Historical post-fix verification; later results are listed separately below. |
+| `npm.cmd run test-ci` and individual test files | Taper reported no useful failing file. We ran each matching file with the historical command pattern `node tests\test-<name>.js`, where `<name>` is the test-file name suffix. The 55 files yielded 52 passing files (1,434 assertions) and three failing files: `test-form-data`, `test-tunnel`, and `test-unix`. | Windows; initial post-certificate-fix snapshot, Node.js 22.19.0, npm 10.9.3. | Historical intermediate snapshot, before the subsequent Windows and test-fixture fixes. |
+| `npm.cmd run test-browser` | Failed to start with `spawn karma ENOENT`. | Initial Windows test setup. | Historical; `tests/browser/start.js` was later updated, and subsequent browser results are listed separately. |
+| `npm.cmd run lint` | Exit 0; legacy dependency circular-dependency warnings were reported. | Windows, Node.js 22.19.0, npm 10.9.3 | Historical, preceding verification. |
+| `npm.cmd run test-ci` | Exit 0; 56 test files and 1,599/1,599 assertions passed. | Windows, Node.js 22.19.0, npm 10.9.3 | Historical, preceding verification. |
+| `node tests/test-tunnel.js` | Exit 0; 27/27 assertions passed. | Windows, Node.js 22.19.0, npm 10.9.3 | Historical, preceding verification. |
+| `node tests/test-shell-scripts.js` | 12/12 checks passed. | Windows, Node.js 22.19.0; Bash available, version not recorded. | Historical standalone result and October 20 rerun; also passed in the October 21 full CI run. |
+| `npm.cmd test` in an isolated worktree copy | Exit 0; lint and CI passed, then the PhantomJS browser tests passed 2/2. | Windows; recorded with Node.js 22.19.0 and npm 10.9.3. | Historical, preceding verification. |
+| `npm.cmd test` before the Windows Karma-launch fix | Lint passed and CI passed 1,606/1,606; browser startup failed because `cmd.exe` split the Karma configuration path at the first space. | Windows, Node.js 22.19.0, npm 10.9.3; isolated copy under a path containing spaces. | Observed during the October 21, 2026 review; led to the startup fix in `tests/browser/start.js`. |
+| `node tests/test-unix.js` | 7/7 checks passed. | Windows; Progress Report 2 environment, Node.js 22.19.0. | Historical, earlier snapshot. |
+| `npm.cmd test` | Lint, all 55 test files (1,585 assertions), and browser tests passed. | Windows, Node.js 22.19.0; Progress Report 2, October 12, 2026. | Historical snapshot before the later 56-file and `localAddress` test results; not current verification. |
+| `node tests/test-https.js` | 20/20 passed after the CA renewal. | Windows; earlier certificate-fix verification, Node.js 22.19.0. | Historical; not a current cross-platform result. |
+| `openssl verify -CAfile tests/ssl/ca/ca.crt tests/ssl/ca/server.crt` | `server.crt: OK` after renewal. | Windows; earlier certificate-fix verification. | Historical. |
+| `node tests/test-localAddress.js` before the test fix | Exit 1; the redirect assertion received `ENETUNREACH` and the callback then raised `TypeError` because `res` was undefined. | Windows, Node.js 22.19.0. | Baseline reproduced twice before editing. |
+| `npm.cmd run test-ci` before the test fix | Exit 2; 1,596/1,598 assertions passed. `test-localAddress.js` failed 1/6. | Windows, Node.js 22.19.0, npm 10.9.3. | Baseline run during this investigation. |
+| `node tests/test-localAddress.js` after the test fix | Exit 0; 14/14 assertions passed on repeated runs. | Windows, Node.js 22.19.0. | Rerun after the final test change. |
+| `npm.cmd test` after the Windows Karma-launch fix | Exit 0; lint passed, CI passed 1,606/1,606 assertions, and browser tests passed 2/2. | Windows, Node.js 22.19.0, npm 10.9.3, PhantomJS 2.1.1; isolated copy of the current worktree under a path containing spaces. | Rerun during the October 21, 2026 review. |
+| `npm.cmd run test-cov` | Exit 0; the test suite passed 1,606/1,606 assertions and generated coverage output. | Windows, Node.js 22.19.0, npm 10.9.3; isolated copy of the current worktree. | Rerun during the October 21, 2026 review; generated artifacts stayed in the isolated copy. |
+| Test suite and lint after replacing the 1024-bit HTTPS test key | All 55 test files and lint passed, as reported in the commit message for `6fbcb56`. | macOS, Node.js 22.21.1, OpenSSL 3.6.2. | Historical commit-message evidence; it does not verify the current working tree. |
+| HTTPS, tunnel, shell-script, Unix-socket, and form-data tests | Passed 20/20, 27/27, 12/12, 6/6, and 64/64 respectively. | Windows, Node.js 22.19.0. | Rerun after the test fix; these tests also passed in the full CI suite. |
 
----
+The 1,599/1,599, 1,596/1,598, and 1,606/1,606 CI counts are from different snapshots, not conflicting totals for one run: 1,599/1,599 was an earlier result before the later `localAddress` failure; 1,596/1,598 was the baseline during that investigation; and 1,606/1,606 followed the local-server test fix.
 
-# Current Finding
+We have documented full-suite and browser-test results for Windows. We still need to verify the current working tree on Linux or macOS.
 
-The original strict HTTPS test failure was caused by an expired CA certificate in the test infrastructure.
+### Earlier macOS findings
 
-The maintenance fix was to renew the test CA certificate and regenerate the server certificate and matching server key.
+Progress Report 2 records an earlier macOS run with Node.js 22.21.1, npm 10.9.4, and OpenSSL 3.6.2: 50 of 55 test files passed, including `test-unix.js`; five tests using the then-1024-bit HTTPS test key failed with `ERR_SSL_EE_KEY_TOO_SMALL`. We subsequently replaced the test key and related fixtures, but that report does not verify the current working tree on macOS.
 
-Important findings:
+The later commit message for `6fbcb56` reports that all 55 test files and lint passed on macOS with Node.js 22.21.1 and OpenSSL 3.6.2 after the 1024-bit HTTPS test key was replaced. This is historical evidence for that commit's snapshot, not a test of the current working tree.
 
-- The original CA certificate expired in February 2022.
-- The original server certificate itself had not expired.
-- Strict HTTPS verification failed because the CA was expired.
-- `request.js` was not identified as the cause.
-- The renewed CA and server certificates verify successfully.
-- All 20 HTTPS tests now pass.
+The report also records a diagnostic run with a lowered OpenSSL security level. We used that only to investigate, not as a fix. We did not disable certificate verification or lower OpenSSL security checks as a solution.
 
-Note: this holds on Windows. On macOS with OpenSSL 3.6.2, the HTTPS tests still fail because of the 1024-bit CA key and other weak or expired test certificates. See sections 11 to 15.
+## 7. Remaining Work
 
----
+### Required before the maintenance work is finalized
 
-# Current Status
+1. Clarify with the TA how to classify the certificate-related and other disputed tasks.
+2. Agree on one primary classification per task, especially for the certificate, agent-pool, and form-data work.
+3. Run and record the current full test suite on Linux and macOS, or document which platform we can test and any limits. The earlier macOS snapshot is not current verification.
+4. Confirm individual contributions and reviews for later implementation work. Our original task division records initial plans, not ownership of every later change.
+5. Complete our final review and update the project documentation before sharing approved changes.
 
-**Status: HTTPS certificate maintenance completed and verified.**
+### Optional future improvements
 
-Note: verified on Windows only. On macOS with OpenSSL 3.6.2, the HTTPS tests still fail because of the 1024-bit CA key and other weak or expired test certificates. See sections 11 to 15.
+- Consider replacing or modernizing the PhantomJS browser-test stack; it is described as unmaintained in Progress Report 2, but it is outside the completed maintenance work recorded here.
+- Review the separate browser-test TLS fixtures in `tests/browser/ssl/`. The checked-in server and CA certificates are self-signed, use 1024-bit RSA keys and SHA-1 signatures, and expired on January 4, 2025. The PhantomJS launcher uses `--ignore-ssl-errors=true`, so the passing browser test does not verify these certificates under normal TLS validation. Decide whether to replace the fixtures or retire this test setup as part of browser-stack modernization.
+- Review dependency and lockfile reproducibility separately. Progress Report 1 notes that `package-lock.json` is ignored and installs differed between snapshots; this was not addressed as part of the documented maintenance changes.
 
-The certificate maintenance changes have been committed on the `prodip-investigation` branch.
+## 8. Group Contributions and Review
 
-Commit:
+The following contributions reflect the information currently available. They are not an exhaustive record, and we can add or correct them as we confirm more details.
 
-    defd8a6 Renew expired HTTPS test certificates
+- **Prodip Kumar Das:** I independently completed the Perfective Maintenance work in Section 4 on Windows. I improved shell-script portability and maintainability, added the `.gitattributes` LF rule, normalized the relevant shell scripts, added `tests/test-shell-scripts.js` to check for CR characters and validate syntax with `bash -n`, documented the LF requirement in `tests/ssl/ca/README.md`, and verified 12/12 shell checks on Windows. I also investigated HTTPS certificate failures, documented the certificate findings, renewed or updated the relevant HTTPS test certificate fixtures, verified HTTPS tests and the broader test suite on Windows after certificate changes, and maintained `MAINTENANCE.md` with our maintenance findings and verification evidence.
+- **Martin Ek:** He verified HTTPS tests after certificate-related changes and investigated and reported additional HTTPS-related issues. He also investigated the identified macOS-specific test failures, implemented fixes for them, and verified relevant tests on macOS after those changes, as recorded in the available reports and group information. Those earlier targeted results do not establish that the current working tree has been fully verified on macOS.
+- **Andreas Lund:** He investigated the complete test suite and reported the remaining failures, as recorded in the maintenance notes.
 
-The working tree is clean after the commit.
+Our original task division also listed reviewing the maintenance work, agreeing on classifications, and preparing the final report and presentation as shared responsibilities. We still need to confirm individual authorship and review of later changes with our groupmates; we do not assign those changes to a specific person without evidence.
 
-The complete project test suite still needs to be verified after the certificate fix.
+## 9. Historical Investigation
 
----
+### Initial setup and HTTPS findings
 
-# Planned / Remaining Work
+In the initial Windows HTTPS investigation, the relaxed HTTPS tests passed but the strict tests failed with `CERT_HAS_EXPIRED`; `node tests/test-https.js` passed 10/20. We inspected the certificates with:
 
-1. Run the complete test suite after the certificate fix.
-2. Investigate any remaining test failures.
-3. Check that the certificate fix does not introduce regressions.
-4. Document the final findings.
-5. Finalize the maintenance type classification.
-6. Update the final project report.
-7. Prepare the final presentation.
+```text
+openssl x509 -in tests/ssl/ca/server.crt -noout -dates -issuer -subject
+openssl x509 -in tests/ssl/ca/ca.crt -noout -dates -issuer -subject
+openssl verify -CAfile tests/ssl/ca/ca.crt tests/ssl/ca/server.crt
+```
 
----
+The original server certificate was valid until November 19, 2028, but its CA certificate expired on February 27, 2022. OpenSSL chain verification failed because of the expired CA. We also inspected `request.js` for `strictSSL`, `rejectUnauthorized`, CA handling, and HTTPS options. The CA and `rejectUnauthorized` settings were passed through to Node's HTTP/HTTPS implementation; we found no evidence that this failure required a `request.js` certificate-option change.
 
-# Task Division
+We later renewed or replaced the CA and related fixtures. In the historical certificate-renewal record, we regenerated the CA using the existing test CA key and appropriate CA extensions, then regenerated the server certificate and matching server private key using the renewed CA. That record gives October 5, 2036 as the expiry date for both the renewed CA and server certificates. Our maintenance records also report 2048-bit CA, client, localhost, and test keys, a 4096-bit server key, and reference `defd8a6` for certificate renewal, `dd288ba` for certificate serial handling, and `6fbcb56` for replacement of the 1024-bit HTTPS test key. These are historical fixture details and do not establish current Linux or macOS test success.
 
-## Prodip Kumar Das
+### Earlier suite failures and subsequent work
 
-- Investigate the HTTPS certificate problem.
-- Renew the expired test certificates.
-- Maintain `MAINTENANCE.md`.
-- Document the certificate-related findings.
+The initial dependency setup failed with `ERESOLVE` involving `karma` and `karma-tap`; `npm.cmd install --legacy-peer-deps` succeeded. We did not run `npm audit fix` because we wanted to avoid automatically changing the legacy dependency structure. The initial `npm.cmd test` run passed lint, failed at CI, and therefore did not reach browser tests. In an intermediate snapshot, `npm.cmd run test-ci` did not identify the failing file, so the 55 matching test files were run individually: 52 passed with 1,434 assertions, while `test-form-data`, `test-tunnel`, and `test-unix` failed. This is an earlier result, not the latest suite count.
 
-## Martin Ek
+The original tunnel failure occurred before assertions while the HTTPS test server started, with `ERR_SSL_CA_MD_TOO_WEAK`; the investigation attributed this to OpenSSL 3 rejecting the SHA-1 signature on `localhost.crt`. That certificate was 2048-bit and valid until November 19, 2028. The 2048-bit `client.crt` was also SHA-1-signed and had expired on November 21, 2021; verification against the renewed CA reported expiration. These were observations of the earlier fixture set. The fixtures were subsequently renewed or replaced, and the later tunnel test passed 27/27; the separate agent-pool protocol fix and its regression test are documented in Section 5.
 
-- Verify the HTTPS tests after the certificate fix.
-- Report any additional HTTPS-related issues.
+The original form-data failure occurred after 42 assertions: the multipart basic-auth case received `ECONNRESET`, followed by a `TypeError` when the unavailable response was accessed. The original investigation notes say the failure recurred on repeated runs and was also observed on Node.js 24; this is a historical observation, not a current test result or proof of cause. The source investigation proposed that the server sent `401` without reading the body while the client was still sending it, but labeled that explanation preliminary. A later test-server change sends `Connection: close` with the `401` response; the test subsequently passed 64/64. The preliminary explanation is not treated here as a confirmed production defect.
 
-## Andreas Lund
+On Windows, the original Unix-domain socket test attempted to listen on a filesystem socket path and failed with `EACCES`; Windows requires a named-pipe path for this use. The initial investigation notes describe the project's Travis CI as Linux-only; that historical setup is not verification of the current working tree on Linux. The test was adapted to use a named pipe on Windows while retaining Unix-domain sockets on supported Unix-like systems. The initial browser command, `npm.cmd run test-browser`, failed with `spawn karma ENOENT` because the startup script did not launch Karma correctly on Windows. The startup script was subsequently made platform-aware, and a later Windows browser run passed 2/2.
 
-- Run and investigate the complete test suite.
-- Report any remaining failures.
+The initial notes also record a Node.js 24 compatibility issue: `test-https.js` failed with `ERR_SSL_EE_KEY_TOO_SMALL` because the relaxed HTTPS server used the 1024-bit `tests/ssl/test.key`. The fixture was later replaced; this historical observation does not establish that the current suite has been verified on Node.js 24. Dependency reproducibility was also a concern: `package-lock.json` is ignored, and one fresh install recorded 896 packages and 61 vulnerabilities, compared with 892 packages and 59 vulnerabilities in Progress Report 1. Those counts are snapshot-specific, not current dependency-audit results.
 
-## All Group Members
+Earlier Windows runs also exposed the wildcard-expansion issue addressed in Section 3. Later Windows results and fixes are recorded in Sections 3 and 6; none of these historical failures should be read as current results. The classification of disputed work remains pending as described in Section 5.
 
-- Review the final maintenance changes.
-- Agree on the maintenance type classification.
-- Prepare the final report and presentation.
+## 10. Project Reports and References
 
----
-
-# Preliminary Maintenance Types
-
-## Corrective Maintenance
-
-The expired CA certificate caused the strict HTTPS tests to fail. Renewing the certificate corrects this failure.
-
-## Adaptive Maintenance
-
-The old test certificate infrastructure needed to be updated so that the legacy project continues to work correctly in the current development environment while maintaining strict HTTPS certificate validation.
-
-## Perfective Maintenance
-
-Perfective maintenance will only be considered if the project includes an improvement that makes the test infrastructure easier to maintain or understand.
-
-The final classification will be decided after the remaining project work is completed.
-
----
-
-# Project Reports
-
-The submitted reports are stored in:
-
-    Report/
-
-They include:
+Project reports retained in `Report/` include:
 
 - `Initial Report - Maintenance Programming Project.pdf`
 - `annotated-Progress_Report_1_Group_4.docx.pdf`
+- `Progress_Report_2_Group_4.pdf`
+- `corrective-maintenance-report.md`
 
----
-
-# Notes
-
-This file is a living technical log for the maintenance project.
-
-It records important setup steps, commands, investigation results, maintenance changes, current findings, and remaining work.
-
-It will be updated as the project progresses.
-# Complete Test Suite Findings
-
-## Andreas's Initial Test Run
-
-Andreas ran the complete test suite on Windows using Node.js 22.19.0
-and npm 10.9.3. Dependencies were installed with:
-
-    npm.cmd install --legacy-peer-deps
-
-The command `npm.cmd run test-ci` reported:
-
-    total ............................... 0/1
-    not ok
-
-This output did not identify the failing test file. Andreas therefore
-ran the 55 test files individually. His initial results were:
-
-- 52 test files passed, with 1,434 assertions and no assertion failures.
-- Three test files failed: `test-form-data.js`, `test-tunnel.js`, and
-  `test-unix.js`.
-
-These are Andreas's initial results, not the final results after
-Prodip's subsequent local certificate and test-fixture changes.
-
-## Prodip's Progress Report 2 Update
-
-### Work completed
-
-- The committed change in `tests/test-unix.js` uses a Windows named pipe.
-  The HTTP and query-string checks run on Windows. Linux and macOS keep
-  the Unix filesystem socket path and URL.
-- The HTTPS test certificates and related fixtures were renewed. OpenSSL
-  verification of the CA-signed server certificate succeeded. TLS
-  verification was not disabled.
-- `tests/browser/start.js` was changed to start Karma on Windows.
-- The form-data test server now closes the connection when it sends its
-  401 response.
-
-### Previous Windows test results
-
-These results were reported from Windows with Node.js 22.19.0 and
-npm 10.9.3. They were not rerun while updating this document.
-
-- `npm.cmd run lint`: passed.
-- `tests/test-unix.js`: 7/7 passed.
-- Full CI suite: 55 files and 1,585/1,585 assertions passed.
-- `npm.cmd run test-browser`: 2/2 passed.
-
-On this Windows setup, `npm.cmd run test-ci` did not expand its test-file
-wildcard correctly. The full suite passed when the test files were listed
-explicitly in PowerShell:
-
-    $files = @(Get-ChildItem .\tests -Filter 'test-*.js' | ForEach-Object { $_.FullName })
-    & .\node_modules\.bin\taper.cmd @files
-
-### Work still needed and limitations
-
-- Run the current tests on Linux or macOS. The Windows results do not
-  verify Unix socket behavior on those systems.
-- `tests/ssl/test.key` was not changed and is still a 1024-bit RSA key.
-  It may be rejected by newer Node.js or OpenSSL versions.
-- The certificate generator serial-allocation issue is unresolved.
-  Certificate regeneration scripts have not been made safe against
-  duplicate serial numbers.
+We use this file as our central maintenance record. It retains earlier investigation results where they explain our changes or current verification limits.

@@ -19,7 +19,7 @@
  server.listen(0, function () {
    var port = this.address().port
    console.log('Started https server for karma tests on port ' + port)
-  // Spawn process for karma.
+
    var karmaArgs = [
      'start',
      path.join(__dirname, '/karma.conf.js'),
@@ -27,23 +27,42 @@
    ]
 
    var c = process.platform === 'win32'
-    ? spawn('cmd.exe', [
-      '/d',
-      '/c',
-      'node_modules\\.bin\\karma.cmd',
-      'start',
-      path.join(__dirname, 'karma.conf.js'),
-      'https://localhost:' + port
-    ], { shell: true })
+    ? spawn(process.execPath, [
+      path.join(__dirname, '..', '..', 'node_modules', 'karma', 'bin', 'karma')
+    ].concat(karmaArgs))
     : spawn('karma', karmaArgs)
 
    c.stdout.pipe(process.stdout)
    c.stderr.pipe(process.stderr)
-   c.on('exit', function (c) {
-    // Exit process with karma exit code.
-     if (c !== 0) {
-       throw new Error('Karma exited with status code ' + c)
+
+   var finished = false
+
+   function finish (exitCode, message) {
+     if (finished) {
+       return
      }
-     server.close()
+     finished = true
+
+     if (message) {
+       console.error(message)
+     }
+
+     server.close(function () {
+       process.exitCode = exitCode
+     })
+   }
+
+   c.on('error', function (err) {
+     finish(1, 'Failed to start Karma: ' + err.message)
+   })
+
+   c.on('exit', function (code, signal) {
+     if (code === null) {
+       finish(1, 'Karma terminated by signal ' + signal)
+     } else if (code !== 0) {
+       finish(code, 'Karma exited with status code ' + code)
+     } else {
+       finish(0)
+     }
    })
  })
