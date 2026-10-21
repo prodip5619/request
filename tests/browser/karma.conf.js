@@ -1,5 +1,6 @@
 'use strict'
 var istanbul = require('browserify-istanbul')
+var path = require('path')
 
 module.exports = function (config) {
   config.set({
@@ -23,7 +24,7 @@ module.exports = function (config) {
 
     autoWatch: false,
 
-    browsers: ['PhantomJS_without_security'],
+    browsers: ['PhantomJS_with_test_CA'],
 
     singleRun: true,
 
@@ -44,12 +45,13 @@ module.exports = function (config) {
       dir: 'coverage/'
     },
 
-    // Custom launcher to allowe self signed certs.
+    // Trust the browser test CA while keeping certificate validation enabled.
     customLaunchers: {
-      PhantomJS_without_security: {
+      PhantomJS_with_test_CA: {
         base: 'PhantomJS',
         flags: [
-          '--ignore-ssl-errors=true'
+          '--ignore-ssl-errors=false',
+          '--ssl-certificates-path=' + path.join(__dirname, 'ssl', 'ca.crt')
         ]
       }
     }

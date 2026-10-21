@@ -27,7 +27,11 @@ tape('succeeds on valid URLs (with https and CORS)', function (t) {
   request({
     uri: __karma__.config.requestTestUrl, // eslint-disable-line no-undef
     withCredentials: false
-  }, function (_, response) {
+  }, function (error, response) {
+    if (error) {
+      t.fail('HTTPS request failed: ' + error.message)
+      return t.end()
+    }
     t.equal(response.statusCode, 200)
     t.end()
   })

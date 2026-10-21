@@ -20,7 +20,34 @@ Our work covers test discovery and execution, Windows test support, certificate 
 
 We have discussed the adaptive and perfective classifications with the TA and received confirmation that we can use these categories for our work. We still need to clarify whether the certificate-related and other potentially corrective fixes count as corrective maintenance. Each task can count toward only one maintenance type for the course.
 
-Our latest documented full CI and browser-test results are from Windows. We have not verified the current working tree on Linux or macOS.
+The browser TLS follow-up and latest full-suite validation described in Section 6 were run on Windows. The current working tree has not been tested on Linux, macOS, or Node.js 24.
+
+### Browser test certificate validation
+
+The browser integration test starts an HTTPS server with fixtures in
+`tests/browser/ssl/` and connects to `https://localhost`. Its previous
+self-signed server and CA certificates used 1024-bit RSA and SHA-1 and expired
+on January 4, 2025. The PhantomJS launcher also used
+`--ignore-ssl-errors=true`, so the earlier 2/2 browser result did not establish
+certificate trust or hostname validation.
+
+The browser-only fixtures now use a 2048-bit RSA test CA and a 2048-bit RSA
+server certificate signed by that CA with SHA-256, a `DNS:localhost` subject
+alternative name, and the `serverAuth` extended key usage. Both certificates
+were issued for 3,650 days; the server certificate is valid through October 18,
+2036. Only the CA certificate, not its signing key, is retained in the
+repository. The Karma launcher passes `tests/browser/ssl/ca.crt` to PhantomJS
+through its `--ssl-certificates-path` option and sets
+`--ignore-ssl-errors=false`. The browser therefore rejects an untrusted CA,
+and it validates the certificate for the hostname used by the test. The
+browser test now reports the request error as a failed assertion rather than
+throwing while accessing a missing response. These fixtures do not change the
+Node HTTPS fixtures, OAuth signing key, or production TLS behavior.
+
+The technical purpose is to make the browser integration test exercise normal
+certificate-chain and hostname validation instead of bypassing it. We have not
+assigned this task a course maintenance category; that decision remains for
+the group and TA.
 
 ### `localAddress` redirect test
 
@@ -107,6 +134,12 @@ The results below distinguish historical project records from tests rerun during
 | `node tests/test-localAddress.js` after the test fix | Exit 0; 14/14 assertions passed on repeated runs. | Windows, Node.js 22.19.0. | Rerun after the final test change. |
 | `npm.cmd test` after the Windows Karma-launch fix | Exit 0; lint passed, CI passed 1,606/1,606 assertions, and browser tests passed 2/2. | Windows, Node.js 22.19.0, npm 10.9.3, PhantomJS 2.1.1; isolated copy of the current worktree under a path containing spaces. | Rerun during the October 21, 2026 review. |
 | `npm.cmd run test-cov` | Exit 0; the test suite passed 1,606/1,606 assertions and generated coverage output. | Windows, Node.js 22.19.0, npm 10.9.3; isolated copy of the current worktree. | Rerun during the October 21, 2026 review; generated artifacts stayed in the isolated copy. |
+| `npm.cmd test` after enabling browser certificate validation | Lint passed, all 56 test files passed with 1,606/1,606 assertions, and PhantomJS passed 2/2 browser assertions with `--ignore-ssl-errors=false` and the browser test CA configured. | Windows 11 Home `10.0.26200`; Node.js 22.19.0, npm 10.9.3, OpenSSL 3.6.1, PhantomJS 2.1.1; isolated copy of the current worktree. | Current Windows validation for the browser TLS update. |
+| `npm.cmd run test-cov` | Exit 0; 1,606/1,606 assertions passed. | Same Windows environment; isolated copy. | Current Windows validation for the updated working tree. |
+| `node tests/test-https.js`, `node tests/test-tunnel.js`, and `node tests/test-oauth.js` | HTTPS 20/20, tunnel 27/27, and OAuth 45/45 assertions passed. | Same Windows environment; isolated copy. | Current targeted regressions; Node HTTPS and OAuth fixtures were not changed. |
+| `npm.cmd run test-browser` with trusted, unrelated-CA, and wrong-host certificates | The trusted CA and `localhost` certificate passed 2/2 assertions. Both an unrelated CA and a certificate signed by the trusted CA for `wronghost` caused an explicit failed HTTPS assertion. | Windows, PhantomJS 2.1.1; isolated validation copy. | Focused trust and hostname positive/negative checks; no certificate-validation bypass was enabled. |
+| OpenSSL verification of `tests/browser/ssl/server.crt` | Chain verification and hostname verification for `localhost` passed; certificate was current, used a 2048-bit RSA key and SHA-256 signature, and matched `server.key`. | Windows OpenSSL 3.6.1. | Current fixture validation. |
+| `cd tests/ssl && sh gen-test.sh` from the certificate README | Exit 0; the documented command wrote `test.key` and `test.crt` under the disposable `tests/ssl` directory, not its parent. | Windows 11; executed with WSL Bash 5.2.21 and OpenSSL 3.0.13, using an isolated temporary directory and OpenSSL configuration. | Current documentation-command validation; no checked-in fixture was regenerated. |
 | Test suite and lint after replacing the 1024-bit HTTPS test key | All 55 test files and lint passed, as reported in the commit message for `6fbcb56`. | macOS, Node.js 22.21.1, OpenSSL 3.6.2. | Historical commit-message evidence; it does not verify the current working tree. |
 | HTTPS, tunnel, shell-script, Unix-socket, and form-data tests | Passed 20/20, 27/27, 12/12, 6/6, and 64/64 respectively. | Windows, Node.js 22.19.0. | Rerun after the test fix; these tests also passed in the full CI suite. |
 
@@ -126,16 +159,15 @@ The report also records a diagnostic run with a lowered OpenSSL security level. 
 
 ### Required before the maintenance work is finalized
 
-1. Clarify with the TA how to classify the certificate-related and other disputed tasks.
+1. Clarify with the TA how to classify the certificate-related, browser TLS, and other disputed tasks.
 2. Agree on one primary classification per task, especially for the certificate, agent-pool, and form-data work.
-3. Run and record the current full test suite on Linux and macOS, or document which platform we can test and any limits. The earlier macOS snapshot is not current verification.
+3. Decide with the group whether current-branch Linux or macOS testing is feasible before submission. Neither has been run on the current branch; earlier macOS results remain historical.
 4. Confirm individual contributions and reviews for later implementation work. Our original task division records initial plans, not ownership of every later change.
 5. Complete our final review and update the project documentation before sharing approved changes.
 
 ### Optional future improvements
 
 - Consider replacing or modernizing the PhantomJS browser-test stack; it is described as unmaintained in Progress Report 2, but it is outside the completed maintenance work recorded here.
-- Review the separate browser-test TLS fixtures in `tests/browser/ssl/`. The checked-in server and CA certificates are self-signed, use 1024-bit RSA keys and SHA-1 signatures, and expired on January 4, 2025. The PhantomJS launcher uses `--ignore-ssl-errors=true`, so the passing browser test does not verify these certificates under normal TLS validation. Decide whether to replace the fixtures or retire this test setup as part of browser-stack modernization.
 - Review dependency and lockfile reproducibility separately. Progress Report 1 notes that `package-lock.json` is ignored and installs differed between snapshots; this was not addressed as part of the documented maintenance changes.
 
 ## 8. Group Contributions and Review
