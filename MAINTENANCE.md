@@ -16,58 +16,31 @@ The initial investigation and the later Windows verification were performed on W
 
 ## 2. Current Maintenance Status
 
-Our work covers test discovery and execution, Windows test support, certificate fixtures and generation, the agent pool, and shell-script portability. The sections below summarize changes supported by the repository and our project reports.
+Our core objective was to restore the test suite in the target Windows environment. This record classifies the test-suite restoration work as Adaptive Maintenance, the separate shell-script portability work as Perfective Maintenance, and the pooled-agent protocol correction as Corrective Maintenance. Each activity is counted under one primary maintenance type.
 
-We have discussed the adaptive and perfective classifications with the TA and received confirmation that we can use these categories for our work. We still need to clarify whether the certificate-related and other potentially corrective fixes count as corrective maintenance. Each task can count toward only one maintenance type for the course.
+These classifications match Section 11 of the final project report. The activity details below are supported by repository changes and recorded test evidence.
 
-The browser TLS follow-up and latest full-suite validation described in Section 6 were run on Windows. The current working tree has not been tested on Linux, macOS, or Node.js 24.
+The final branch was validated on Windows and macOS. The current branch has not been verified on Linux or Node.js 24.
 
-### Browser test certificate validation
+## 3. Adaptive Maintenance — Core Test-Suite Restoration
 
-The browser integration test starts an HTTPS server with fixtures in
-`tests/browser/ssl/` and connects to `https://localhost`. Its previous
-self-signed server and CA certificates used 1024-bit RSA and SHA-1 and expired
-on January 4, 2025. The PhantomJS launcher also used
-`--ignore-ssl-errors=true`, so the earlier 2/2 browser result did not establish
-certificate trust or hostname validation.
-
-The browser-only fixtures now use a 2048-bit RSA test CA and a 2048-bit RSA
-server certificate signed by that CA with SHA-256, a `DNS:localhost` subject
-alternative name, and the `serverAuth` extended key usage. Both certificates
-were issued for 3,650 days; the server certificate is valid through October 18,
-2036. Only the CA certificate, not its signing key, is retained in the
-repository. The Karma launcher passes `tests/browser/ssl/ca.crt` to PhantomJS
-through its `--ssl-certificates-path` option and sets
-`--ignore-ssl-errors=false`. The browser therefore rejects an untrusted CA,
-and it validates the certificate for the hostname used by the test. The
-browser test now reports the request error as a failed assertion rather than
-throwing while accessing a missing response. These fixtures do not change the
-Node HTTPS fixtures, OAuth signing key, or production TLS behavior.
-
-The technical purpose is to make the browser integration test exercise normal
-certificate-chain and hostname validation instead of bypassing it. We have not
-assigned this task a course maintenance category; that decision remains for
-the group and TA.
-
-### `localAddress` redirect test
-
-The previous `tests/test-localAddress.js` redirect case contacted Google and chose the first non-internal IPv4 address returned by the operating system. On our Windows test environment, that address was `172.29.224.1` on the WSL virtual adapter. DNS resolution succeeded and a default-route TCP check to Google succeeded, but the request bound to the selected adapter failed with `ENETUNREACH` at `142.251.143.142:80`. The callback then accessed `res.request` even though the request had failed, causing a `TypeError`.
-
-We replaced that external dependency with a local HTTP server bound to the selected local IPv4 address (or loopback if none is available). The test still checks invalid-address binding, verifies the source address observed by the server, and follows a local `/redirect` to `/final` while checking the source address on both requests. No production request or redirect code needed to change.
-
-## 3. Adaptive Maintenance
-
-These changes adapt the test infrastructure to Windows behavior while retaining the Unix-like platform paths where applicable.
+These changes restore the test suite in the target environment. The activity includes test discovery, platform-specific test support, reliable fixtures and test-server behavior, and strict browser TLS validation. Browser TLS changes are part of this core restoration and are not counted again as separate Perfective or Corrective activities.
 
 | Change | Purpose and evidence |
 | --- | --- |
+| HTTPS test certificate fixtures and generation | Updated expired or weak test certificates and related generation steps to allow strict HTTPS tests to run with the target Node/OpenSSL environment. This includes renewal of CA/server/client/localhost fixtures, serial handling in certificate scripts, and replacement of the 1024-bit HTTPS test key; see Section 9 and the recorded commits. TLS verification was not disabled. |
 | `tests/run-test-suite.js` and the `test-ci` script in `package.json` | The earlier test command passed a wildcard to Taper through `cmd.exe`; Windows did not expand it, and Taper ran no tests. The runner now finds, sorts, and passes matching `tests/test-*.js` files directly to Taper. Before the later `localAddress` test fix, the Windows CI result reported 56 test files and 1,599 assertions passing. |
 | `tests/test-unix.js` | Uses a Windows named pipe on Windows. Other platforms retain the Unix-domain socket path and URL. Progress Report 2 records 7/7 checks passing on Windows and that the Unix-socket test passed on macOS in an earlier test run. |
 | `tests/browser/start.js` | Starts the local Karma CLI through `process.execPath` on Windows, avoiding shell parsing of paths with spaces; non-Windows platforms continue to invoke `karma`. Spawn errors and nonzero exit statuses are reported and propagated. |
+| `tests/test-form-data.js` | The multipart basic-auth test server sends `Connection: close` with its 401 response. The recorded failure was `ECONNRESET` while the client was still sending the multipart body; after the test-server change the form-data test passed 64/64. This restores a failing test and is part of suite restoration, not an additional Corrective activity. |
+| `tests/test-localAddress.js` | Replaced reliance on an external Google endpoint with a local HTTP server, avoiding the observed Windows `ENETUNREACH` failure while retaining checks for invalid binding, source address, and redirects. This is test isolation; production request behavior was not changed. |
+| Browser TLS fixtures and configuration | Replaced expired/weak browser-only fixtures with a 2048-bit RSA test CA and matching SHA-256-signed 2048-bit RSA server certificate. The server certificate includes `DNS:localhost` in its Subject Alternative Name and `serverAuth` extended key usage. Both certificates were issued for 3,650 days; the server certificate is valid through October 18, 2036. The CA signing key is not retained in the repository. Karma/PhantomJS trusts `tests/browser/ssl/ca.crt` via `--ssl-certificates-path` and runs with `--ignore-ssl-errors=false`. TLS request errors are explicit test failures. |
 
-We classify this work as adaptive because it adjusts the existing test infrastructure to the Windows environment while preserving Unix-like behavior. These changes do not establish that the current application or test suite works on all operating systems.
+The former browser server and CA certificates used 1024-bit RSA and SHA-1 and expired on January 4, 2025. The browser test is intended to establish the trusted-CA and correct-hostname positive case. Focused negative validation also checks rejection with an unrelated CA and with an incorrect hostname; neither case disables TLS verification. The browser-only certificate work does not change the Node HTTPS fixtures, OAuth signing key, or production TLS behavior. These browser changes are recorded in commit `96ee9b4`.
 
-## 4. Perfective Maintenance
+We classify this work as Adaptive Maintenance because it adapts and repairs the existing test infrastructure and fixtures so the core suite can run in the target environment while preserving Unix-like platform paths where applicable. These results do not establish that the current application or test suite works on every operating system.
+
+## 4. Perfective Maintenance — Separate Shell-Script Activity
 
 ### Shell-script line-ending portability
 
@@ -91,21 +64,13 @@ The test checks line endings and Bash syntax. It does not execute the scripts, v
 
 Prodip Kumar Das completed this work independently in the Windows environment. We classify it as perfective because it improves the consistency and maintainability of our supporting scripts without changing the library's runtime behavior. The historical Windows verification recorded 12/12 checks passing. We reran the command during the October 20, 2026 documentation consolidation on Windows with Node.js 22.19.0; it again passed 12/12. Bash was available, but its version was not recorded. We have no evidence of a Linux or macOS run.
 
-## 5. Potentially Corrective Work — Classification Pending
+## 5. Corrective Maintenance — Agent-Pool Protocol Collision
 
-We have not resolved with the TA whether the following fixes qualify as corrective maintenance for the course. A task may involve characteristics of multiple maintenance types, but it can count toward only one type. We still need to agree on the primary classification of each task and confirm it with the TA.
+The pooled-agent selection used the destination URI protocol in its pool key even when a non-tunneled proxy request selected its HTTP module from the proxy protocol. That mismatch could select an agent from the wrong protocol pool. The correction in `request.js` uses the proxy protocol for non-tunneled proxy requests and otherwise uses the destination protocol. Commit `e30d782` also adds a regression test in `tests/test-tunnel.js` that exercises an HTTPS request before the proxy cases.
 
-| Task | What changed and why | Classification status |
-| --- | --- | --- |
-| Certificate fixtures and generation | The expired CA caused strict HTTPS tests to fail with `CERT_HAS_EXPIRED`. We later renewed the CA and reissued the server, client, and localhost certificates. We also replaced weak or expired test fixtures, including `tests/ssl/test.key` and `tests/ssl/test.crt`. The generator workflow was updated, and `gen-client.sh` and `gen-localhost.sh` use `-CAserial ca.srl` to avoid duplicate serial allocation. TLS verification was not disabled. | We still need to confirm whether these changes count as corrective maintenance. |
-| Agent-pool protocol collision | `request.js` keys pooled agents using the proxy protocol for non-tunneled proxy requests and otherwise the destination protocol. `tests/test-tunnel.js` first exercises an HTTPS request to expose an incompatible pooled-agent selection. An in-memory old-key counterfactual is recorded as 23/27 passing, with four protocol errors. | We still need to confirm whether this fix counts as corrective maintenance. |
-| Form-data test response | `tests/test-form-data.js` sends `Connection: close` with the test server's 401 response. The progress report says this addressed an `ECONNRESET` when the client was still sending a multipart body. | We still need to confirm whether this test-server fix counts as corrective maintenance. |
+The recorded old-key counterfactual passed 23/27 assertions and produced four protocol errors; with the updated key logic, `node tests/test-tunnel.js` passed 27/27. This is a functional library defect correction and a separate follow-on activity, not an adaptation required to make the test infrastructure run. The tunnel test exposed the defect but does not make the correction Adaptive Maintenance.
 
-Progress Reports 1 and 2 treated the maintenance classifications as proposals and left the final decision open. We have since confirmed with the TA that adaptive and perfective maintenance can be used for our work. The classification still awaiting clarification is whether the fixes above count as corrective maintenance.
-
-We have not assigned a course maintenance type to the `localAddress` test-only reliability change described in Section 2.
-
-The separate corrective-maintenance report found no additional reproducible corrective defect in its investigated snapshot and made no implementation change. It records passing HTTPS and tunnel checks on that snapshot; it does not settle the classification of the fixes listed above.
+The agent-pool change is classified only as Corrective Maintenance. The certificate, form-data, `localAddress`, Windows infrastructure, and browser TLS work are already included in Adaptive Maintenance above and must not be counted again here.
 
 ## 6. Verification Results
 
@@ -135,6 +100,7 @@ The results below distinguish historical project records from tests rerun during
 | `npm.cmd test` after the Windows Karma-launch fix | Exit 0; lint passed, CI passed 1,606/1,606 assertions, and browser tests passed 2/2. | Windows, Node.js 22.19.0, npm 10.9.3, PhantomJS 2.1.1; isolated copy of the current worktree under a path containing spaces. | Rerun during the October 21, 2026 review. |
 | `npm.cmd run test-cov` | Exit 0; the test suite passed 1,606/1,606 assertions and generated coverage output. | Windows, Node.js 22.19.0, npm 10.9.3; isolated copy of the current worktree. | Rerun during the October 21, 2026 review; generated artifacts stayed in the isolated copy. |
 | `npm.cmd test` after enabling browser certificate validation | Lint passed, all 56 test files passed with 1,606/1,606 assertions, and PhantomJS passed 2/2 browser assertions with `--ignore-ssl-errors=false` and the browser test CA configured. | Windows 11 Home `10.0.26200`; Node.js 22.19.0, npm 10.9.3, OpenSSL 3.6.1, PhantomJS 2.1.1; isolated copy of the current worktree. | Current Windows validation for the browser TLS update. |
+| Final branch validation on macOS | Lint passed; all 56 test files passed with 1,606/1,606 assertions; browser tests passed 2/2 with strict certificate validation. `test-https.js` 20/20, `test-tunnel.js` 27/27, `test-oauth.js` 45/45, `test-form-data.js` 64/64, `test-shell-scripts.js` 12/12, and `test-unix.js` 6/6 passed. The `npm run test-cov` run also passed 1,606/1,606. | macOS 15.6.1; branch `prodip-integrate-andreas`, commit `96ee9b4`; Node.js 22.21.1, OpenSSL 3.6.2, PhantomJS 2.1.1. | `Report/Group_4_Maintenance_Programming_Final_Report.pdf`; this document update did not rerun those tests. |
 | `npm.cmd run test-cov` | Exit 0; 1,606/1,606 assertions passed. | Same Windows environment; isolated copy. | Current Windows validation for the updated working tree. |
 | `node tests/test-https.js`, `node tests/test-tunnel.js`, and `node tests/test-oauth.js` | HTTPS 20/20, tunnel 27/27, and OAuth 45/45 assertions passed. | Same Windows environment; isolated copy. | Current targeted regressions; Node HTTPS and OAuth fixtures were not changed. |
 | `npm.cmd run test-browser` with trusted, unrelated-CA, and wrong-host certificates | The trusted CA and `localhost` certificate passed 2/2 assertions. Both an unrelated CA and a certificate signed by the trusted CA for `wronghost` caused an explicit failed HTTPS assertion. | Windows, PhantomJS 2.1.1; isolated validation copy. | Focused trust and hostname positive/negative checks; no certificate-validation bypass was enabled. |
@@ -145,7 +111,7 @@ The results below distinguish historical project records from tests rerun during
 
 The 1,599/1,599, 1,596/1,598, and 1,606/1,606 CI counts are from different snapshots, not conflicting totals for one run: 1,599/1,599 was an earlier result before the later `localAddress` failure; 1,596/1,598 was the baseline during that investigation; and 1,606/1,606 followed the local-server test fix.
 
-We have documented full-suite and browser-test results for Windows. We still need to verify the current working tree on Linux or macOS.
+The final branch has documented full-suite and browser-test results on Windows and macOS. The current branch has not been verified on Linux or Node.js 24.
 
 ### Earlier macOS findings
 
@@ -153,17 +119,17 @@ Progress Report 2 records an earlier macOS run with Node.js 22.21.1, npm 10.9.4,
 
 The later commit message for `6fbcb56` reports that all 55 test files and lint passed on macOS with Node.js 22.21.1 and OpenSSL 3.6.2 after the 1024-bit HTTPS test key was replaced. This is historical evidence for that commit's snapshot, not a test of the current working tree.
 
+The final report also records that `tests/test-timing.js` failed intermittently on macOS: one assertion failed in 7 of 15 repeated runs, and the unmodified upstream `master` failed at the same rate. The assertion compares request and redirected-response start times in whole milliseconds, which can be equal on a fast machine. The report identifies this as a pre-existing timing-sensitive test, not a regression from the maintenance changes.
+
 The report also records a diagnostic run with a lowered OpenSSL security level. We used that only to investigate, not as a fix. We did not disable certificate verification or lower OpenSSL security checks as a solution.
 
 ## 7. Remaining Work
 
-### Required before the maintenance work is finalized
+### Remaining before the maintenance work is finalized
 
-1. Clarify with the TA how to classify the certificate-related, browser TLS, and other disputed tasks.
-2. Agree on one primary classification per task, especially for the certificate, agent-pool, and form-data work.
-3. Decide with the group whether current-branch Linux or macOS testing is feasible before submission. Neither has been run on the current branch; earlier macOS results remain historical.
-4. Confirm individual contributions and reviews for later implementation work. Our original task division records initial plans, not ownership of every later change.
-5. Complete our final review and update the project documentation before sharing approved changes.
+1. Decide with the group whether current-branch Linux testing is feasible before submission. Linux testing has not been run on the current branch.
+2. Confirm individual contributions and reviews for later implementation work. Our original task division records initial plans, not ownership of every later change.
+3. Complete our final review and update the project documentation before sharing approved changes.
 
 ### Optional future improvements
 
@@ -181,6 +147,55 @@ The following contributions reflect the information currently available. They ar
 Our original task division also listed reviewing the maintenance work, agreeing on classifications, and preparing the final report and presentation as shared responsibilities. We still need to confirm individual authorship and review of later changes with our groupmates; we do not assign those changes to a specific person without evidence.
 
 ## 9. Historical Investigation
+
+### Historical corrective investigation snapshot
+
+The separate corrective-maintenance investigation did not state a preparation
+date. It described a repository snapshot in which the earlier certificate and
+test fixture fixes were already present. Its conclusion was limited to that
+investigation: no additional reproducible corrective defect was found there,
+so it made no implementation change. This does not remove or reclassify the
+separately documented agent-pool protocol correction in Section 5.
+
+The investigation recorded Node.js `v22.19.0` and OpenSSL `3.6.1 27 Jan 2026`.
+It ran:
+
+```text
+node tests/test-https.js
+node tests/test-tunnel.js
+```
+
+The recorded results were 20/20 HTTPS assertions and 26/26 tunnel assertions.
+The tunnel count is historical; the later regression test added an assertion,
+and the later Windows result recorded in Section 6 is 27/27.
+
+The report recorded these fixture details for its snapshot: CA certificate
+valid through October 2036 and 2048-bit RSA key; server certificate valid
+through October 2036 with a 4096-bit key; client and localhost certificates
+valid through October 2036 with 2048-bit keys; `tests/ssl/test.key` at 2048
+bits; and `tests/ssl/test.crt` valid through October 2036. Its sample OpenSSL
+output included:
+
+```text
+notBefore=Oct 11 18:42:36 2026 GMT
+notAfter=Oct  8 18:42:36 2036 GMT
+Public-Key: (2048 bit)
+
+notBefore=Oct 12 00:18:13 2026 GMT
+notAfter=Oct  9 00:18:13 2036 GMT
+Public-Key: (4096 bit)
+```
+
+These are the report's historical observations, not current fixture
+validation.
+
+The investigation referred to commits `6fbcb56` (replace the 1024-bit HTTPS
+test key), `dd288ba` (fix duplicate certificate serial numbers), and
+`defd8a6` (renew expired HTTPS test certificates). It inspected Git state,
+maintenance notes, HTTPS/TLS tests, certificate fixtures, and runtime
+versions, and found those previously identified issues already addressed in
+the snapshot. No implementation changes were made as part of that
+investigation.
 
 ### Initial setup and HTTPS findings
 
@@ -208,15 +223,19 @@ On Windows, the original Unix-domain socket test attempted to listen on a filesy
 
 The initial notes also record a Node.js 24 compatibility issue: `test-https.js` failed with `ERR_SSL_EE_KEY_TOO_SMALL` because the relaxed HTTPS server used the 1024-bit `tests/ssl/test.key`. The fixture was later replaced; this historical observation does not establish that the current suite has been verified on Node.js 24. Dependency reproducibility was also a concern: `package-lock.json` is ignored, and one fresh install recorded 896 packages and 61 vulnerabilities, compared with 892 packages and 59 vulnerabilities in Progress Report 1. Those counts are snapshot-specific, not current dependency-audit results.
 
-Earlier Windows runs also exposed the wildcard-expansion issue addressed in Section 3. Later Windows results and fixes are recorded in Sections 3 and 6; none of these historical failures should be read as current results. The classification of disputed work remains pending as described in Section 5.
+Earlier Windows runs also exposed the wildcard-expansion issue addressed in Section 3. Later Windows results and fixes are recorded in Sections 3 and 6; none of these historical failures should be read as current results. The final activity classifications are summarized in Sections 3–5.
 
 ## 10. Project Reports and References
 
 Project reports retained in `Report/` include:
 
+- `Group_4_Maintenance_Programming_Final_Report.pdf`
 - `Initial Report - Maintenance Programming Project.pdf`
 - `annotated-Progress_Report_1_Group_4.docx.pdf`
 - `Progress_Report_2_Group_4.pdf`
-- `corrective-maintenance-report.md`
 
-We use this file as our central maintenance record. It retains earlier investigation results where they explain our changes or current verification limits.
+Historical corrective-investigation evidence is summarized in Section 9.
+Browser TLS configuration and validation are documented as Adaptive
+Maintenance in Section 3. We use this file as our central maintenance record
+and retain earlier investigation results where they explain our changes or
+current verification limits.
